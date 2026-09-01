@@ -1,15 +1,12 @@
 # Connection Management
 
 A Cognigy Extension for working with [Connections](https://docs.cognigy.com/ai/platform-features/connections)
-from within a Flow — read their decrypted values, update the values inside them,
+from within a Flow, read their decrypted values, update the values inside them,
 and list them. Handy for storing and rotating auth tokens and other credentials.
 
 ## Connection schemas
 
-This extension defines three connection schemas. Create instances of them with
-the **`+`** button on any "Get … Values" node's connection field (Cognigy's
-standard way to add a connection); the extension does not need a separate create
-node.
+This extension defines three connection schemas. FYI, the extension does not need a separate create, you create the connection within the node itself.
 
 | Schema | `type` | Fields |
 | ------ | ------ | ------ |
@@ -17,7 +14,7 @@ node.
 | Credentials store | `auth-credentials` | `clientId`, `clientSecret`, `tokenUrl`, `scope` |
 | Data store | `auth-data` | `value1` … `value6` (free-form slots) |
 
-A typical setup keeps them split — e.g. per API: one Credentials store (static
+A typical setup keeps them split, e.g. per API: one Credentials store (static
 client id/secret + token endpoint) and one Token store (the rotating access
 token + expiry). The Data store is a general-purpose bucket for non-uniform
 values.
@@ -26,11 +23,11 @@ values.
 
 Two mechanisms, because Cognigy exposes connections two ways:
 
-1. **Connection binding** — a connection *field* on a node. At runtime Cognigy
+1. **Connection binding**: a connection *field* on a node. At runtime Cognigy
    injects the connection's **decrypted** values into the node (exactly as for a
    built-in HTTP Request node). This is the only way to read real secret values.
    Used by the **Get … Values** nodes. No API key needed.
-2. **Management REST API** — for updating, listing, and inspecting connections.
+2. **Management REST API**: for updating, listing, and inspecting connections.
    Authenticated with a Cognigy API key stored in the `cognigy-api` Connection.
    Note the API **masks secret values as `****`** in responses.
 
@@ -80,7 +77,7 @@ connection's `_id`.
 
 ## Known limitations & notes
 
-- **`PATCH` merge vs. replace** — the Update nodes send only the fields you fill
+- **`PATCH` merge vs. replace**: the Update nodes send only the fields you fill
   in. This is correct if Cognigy's `PATCH` merges (updates just those keys). If
   it replaces the whole field set, fill every field you want to keep. Confirm
   with a quick test on your tenant.
