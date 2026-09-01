@@ -1,0 +1,31 @@
+{
+  "name": "auth-token-management",
+  "version": "4.7.0",
+  "description": "Create, read, and update Cognigy Connections via the Management API",
+  "main": "build/module.js",
+  "scripts": {
+    "transpile": "tsc -p .",
+    "zip": "tar cfz auth-token-in-connection.tar.gz build/* package.json package-lock.json README.md icon.png",
+    "build": "npm run transpile && npm run lint && npm run zip",
+    "lint": "tslint -c tslint.json src/**/*.ts",
+    "test": "npm run transpile && node --test test/*.test.js"
+  },
+  "keywords": [
+    "Connections",
+    "Management API",
+    "Authentication",
+    "Token"
+  ],
+  "author": "Cognigy GmbH",
+  "license": "MIT",
+  "dependencies": {
+    "@cognigy/extension-tools": "^0.16.6",
+    "axios": "^1.13.2",
+    "form-data": "^4.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tslint": "^6.1.3",
+    "typescript": "^5.4.5"
+  }
+}
