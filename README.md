@@ -6,7 +6,7 @@ and list them. Handy for storing and rotating auth tokens and other credentials.
 
 ## Connection schemas
 
-This extension defines three connection schemas. FYI, the extension does not need a separate create, you create the connection within the node itself.
+This extension defines three connection schemas.
 
 | Schema | `type` | Fields |
 | ------ | ------ | ------ |
@@ -14,22 +14,31 @@ This extension defines three connection schemas. FYI, the extension does not nee
 | Credentials store | `auth-credentials` | `clientId`, `clientSecret`, `tokenUrl`, `scope` |
 | Data store | `auth-data` | `value1` … `value6` (free-form slots) |
 
-A typical setup keeps them split, e.g. per API: one Credentials store (static
-client id/secret + token endpoint) and one Token store (the rotating access
-token + expiry). The Data store is a general-purpose bucket for non-uniform
-values.
+Any values passed into the connection need to be `strings`, even numbers, otherwise the values will not pass into the connections properly.  As an example, below is an example of setting up some values for a Data node update.
+
+```
+  const now = Date.now();
+
+  const data = {
+    Value1: `value1-${now}`,
+    Value2: `${now}`,
+    Value3: `https://cognigy.ai/v1/example?ts=${now}`,
+    Value4: `${now % 2 === 0}`,
+    Value5: `${Math.round((now % 1000) / 10)}`,
+    Value6: `data-${now}`
+  };
+
+  api.addToContext('data', data, 'simple');
+```
 
 ## How it works
 
 Two mechanisms, because Cognigy exposes connections two ways:
 
-1. **Connection binding**: a connection *field* on a node. At runtime Cognigy
-   injects the connection's **decrypted** values into the node (exactly as for a
-   built-in HTTP Request node). This is the only way to read real secret values.
-   Used by the **Get … Values** nodes. No API key needed.
-2. **Management REST API**: for updating, listing, and inspecting connections.
-   Authenticated with a Cognigy API key stored in the `cognigy-api` Connection.
-   Note the API **masks secret values as `****`** in responses.
+1. **Connection binding**: A connection *field* on a node. At runtime Cognigy
+   injects the connection's **decrypted** values into the node. This is the only way to read real secret values.  Used by the **Get … Values** nodes. No API key needed.
+2. **Management REST API**: For updating, listing, and inspecting connections.
+   Authenticated with a Cognigy API key stored in the `cognigy-api` Connection.  Note the API **masks secret values as `****`** in responses which is why we can't also use this for getting connection values or why we can't use a standard HTTP request to get connection values.
 
 ### Prerequisites (for the API-based nodes)
 
@@ -67,6 +76,44 @@ node shows the target schema's **named fields** — fill only the ones you want 
 change (blanks are skipped). Requires the `cognigy-api` Connection and the
 connection's `_id`.
 
+## Step-by-step guide
+
+### Initial setup & reading
+
+Create a **Get … Values** node and, within it, create a new connection (via the
+`+` next to the Connection field) to read from:
+
+![Get Credentials Values node](screenshots/get-credentials-example.png)
+
+Creating a connection opens a form for its fields:
+
+![Creating a new connection](screenshots/create-connection.png)
+
+You can also choose where the decrypted values are stored (`Input` or
+`Context`) and under what `Result Key`.
+
+> Future idea: allow selecting the connection by ID instead of a fixed
+> binding, so a single node could be reused across multiple environments.
+
+Once configured, running the node retrieves the decrypted values so they can
+be passed into a subsequent node — for example, into an HTTP Request's headers
+or body.
+
+### Updating
+
+Updating takes an extra step: you first need the connection's `_id`. Both this
+lookup and the update itself require a `cognigy-api` Connection (an API key).
+
+1. Get the `_id` by running **List Connections**. You can drive the `Name
+   Filter` field dynamically (e.g. from an env var) to look it up
+   programmatically in the flow, or run it once and hardcode the `_id`s, as
+   shown here:
+
+   ![List Connections query fields](screenshots/list-connections-filter.png)
+
+2. Pass that `_id` into the matching **Update … Connection** node along with
+   the new field values.
+
 ## Example: token refresh loop
 
 1. **Get Token Values** → read `accessToken` + `expiresAt` (decrypted).
@@ -77,10 +124,8 @@ connection's `_id`.
 
 ## Known limitations & notes
 
-- **`PATCH` merge vs. replace**: the Update nodes send only the fields you fill
-  in. This is correct if Cognigy's `PATCH` merges (updates just those keys). If
-  it replaces the whole field set, fill every field you want to keep. Confirm
-  with a quick test on your tenant.
+- **`PATCH` merge vs. replace**: The Update nodes send only the fields you fill
+  in meaning that blank fields should not be updated.
 - Connections created via the `+` button are made at **design time**; there is
   no runtime/programmatic connection creation.
 - The API key in the `cognigy-api` Connection grants connection-management
