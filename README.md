@@ -4,6 +4,19 @@ A Cognigy Extension for working with [Connections](https://docs.cognigy.com/ai/p
 from within a Flow, read their decrypted values, update the values inside them,
 and list them. Handy for storing and rotating auth tokens and other credentials.
 
+## What's new in 5.0.0
+
+- **Update multiple connections at once.** The Update nodes' **Connection
+  ID(s)** field now accepts a comma-separated list of `_id`s, so every copy of
+  a connection can be updated in one step (see
+  [Snapshots change connection IDs](#snapshots-change-connection-ids)).
+- **Per-connection results.** If one update fails, the rest still run, and the
+  result lists what was updated and what failed.
+- **Breaking change:** the Update nodes used to store the API response for the
+  single connection. They now store a summary
+  (`total`, `updatedCount`, `failedCount`, `updated`, `failed`). Flows that read
+  values from the old result need updating.
+
 ## Connection schemas
 
 This extension defines three connection schemas.
@@ -83,8 +96,7 @@ values. A CognigyScript array such as `{{input.connectionIds}}` also works. The
 same values are written to every id, in a random order each run; if one fails,
 the rest still run. The random order means that if a run is cut short (e.g. by
 the extension's runtime limit), a later refresh is likely to reach the ids that
-were missed. The
-result looks like:
+were missed. The result looks like:
 
 ```json
 {
@@ -128,15 +140,50 @@ or body.
 Updating takes an extra step: you first need the connection's `_id`. Both this
 lookup and the update itself require a `cognigy-api` Connection (an API key).
 
-1. Get the `_id` by running **List Connections**. You can drive the `Name
-   Filter` field dynamically (e.g. from an env var) to look it up
-   programmatically in the flow, or run it once and hardcode the `_id`s, as
-   shown here:
+#### Snapshots change connection IDs
+
+**Don't hardcode connection `_id`s.** When you restore a snapshot to your
+Agent, the restored connections get new `_id`s, and the restore can leave
+duplicate copies of the same connection (same name, different `_id`). A
+hardcoded `_id` will then point at the wrong connection, or at one that no
+longer exists, and you won't know which copy the flow is reading from.
+
+Instead, look the `_id`s up at runtime and update **every** matching copy:
+
+1. **List Connections**: set **Name Filter** to the connection's name and
+   **Project ID** to your project, so only the copies of that connection come
+   back. Make the name specific enough that it can't match other connections.
+   With the default settings, the results are stored in `input.connections`.
 
    ![List Connections query fields](screenshots/list-connections-filter.png)
 
-2. Pass that `_id` into the matching **Update … Connection** node along with
-   the new field values.
+2. **Code node**: turn the results into a comma-separated list of `_id`s:
+
+   ```js
+   /**
+    * Node Name: Code: Get Connection IDs
+    * Description: Grabs connection IDs from filtered list.
+    * Author: Daniel Tucker
+    * Created On: 2026-10-12
+    * Last Modified: 2026-10-12
+   */
+
+   // Filtered connections returned by the previous node
+   const items = input.connections?.items;
+
+   // Only proceed if there is at least one connection to process
+   if (items && items.length > 0) {
+       // Pull out each _id and join them into a comma-separated string
+       const connectionList = items.map(item => item._id).join(', ');
+
+       // Store the IDs in context for use by later nodes
+       api.addToContext('temp.connectionList', connectionList, 'simple');
+   }
+   ```
+
+3. **Update … Connection**: set **Connection ID(s)** to
+   `{{context.temp.connectionList}}` and fill in the new field values. Every
+   connection in the list gets the same values.
 
 ## Example: token refresh loop
 
@@ -144,12 +191,18 @@ lookup and the update itself require a `cognigy-api` Connection (an API key).
 2. Check whether the token is expired.
 3. If expired: **Get Credentials Values** → read `clientId`/`clientSecret`/`tokenUrl`.
 4. **HTTP Request** node → call the token endpoint for a new token.
-5. **Update Token Connection** → write the new `accessToken` + `expiresAt`.
+5. **List Connections** + **Code node** → collect the `_id`s of every copy of
+   the token connection (see [Updating](#updating)).
+6. **Update Token Connection** → write the new `accessToken` + `expiresAt` to
+   all of them.
 
 ## Known limitations & notes
 
 - **`PATCH` merge vs. replace**: The Update nodes send only the fields you fill
   in meaning that blank fields should not be updated.
+- **Snapshot restores** give connections new `_id`s and can create duplicate
+  copies. Look the `_id`s up at runtime rather than hardcoding them (see
+  [Snapshots change connection IDs](#snapshots-change-connection-ids)).
 - Connections created via the `+` button are made at **design time**; there is
   no runtime/programmatic connection creation.
 - The API key in the `cognigy-api` Connection grants connection-management
