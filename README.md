@@ -76,6 +76,30 @@ node shows the target schema's **named fields** — fill only the ones you want 
 change (blanks are skipped). Requires the `cognigy-api` Connection and the
 connection's `_id`.
 
+The **Connection ID(s)** field takes a single `_id` or a comma-separated list
+(e.g. `6a886d4bd9adb69ed8d18eba,6abe15c1eec04a04502a05b4`) — useful when
+snapshot restores have created duplicate connections that all need the same
+values. A CognigyScript array such as `{{input.connectionIds}}` also works. The
+same values are written to every id, in a random order each run; if one fails,
+the rest still run. The random order means that if a run is cut short (e.g. by
+the extension's runtime limit), a later refresh is likely to reach the ids that
+were missed. The
+result looks like:
+
+```json
+{
+  "total": 2,
+  "updatedCount": 1,
+  "failedCount": 1,
+  "updated": [{ "id": "6a886d4bd9adb69ed8d18eba", "status": 200 }],
+  "failed": [{ "id": "6abe15c1eec04a04502a05b4", "error": "HTTP 404: Not found" }]
+}
+```
+
+Partial failures are logged and the flow continues — check `failedCount`. If
+**every** update fails (or no id is given), the node follows **On Error**: stop
+execution, or store the result with an added `error` message.
+
 ## Step-by-step guide
 
 ### Initial setup & reading

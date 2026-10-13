@@ -1,6 +1,6 @@
 import { createNodeDescriptor } from "@cognigy/extension-tools";
 import { buildApiClient, describeError } from "./apiClient";
-import { pickFields, storeResult } from "./nodeHelpers";
+import { parseConnectionIds, pickFields, shuffle, storeResult, updateConnections } from "./nodeHelpers";
 import { ISchemaDef } from "./schemas";
 
 export interface IValueField {
@@ -18,6 +18,9 @@ export interface IValueField {
  *
  * Update goes through the Management API (`PATCH`), which requires the
  * connection's Mongo `_id` (from List Connections) and an API connection.
+ * Several ids can be given as a comma-separated list; the same values are
+ * written to each (in random order), and failures are reported per id without
+ * stopping the rest.
  */
 export function makeUpdateConnectionNode(opts: {
   type: string;
@@ -47,9 +50,9 @@ export function makeUpdateConnectionNode(opts: {
       },
       {
         key: "connectionId",
-        label: "Connection ID",
+        label: "Connection ID(s)",
         type: "cognigyText",
-        description: "24-character connection _id (from the List Connections node, or a CognigyScript value like {{context.tokenConnectionId}})",
+        description: "24-character connection _id, or a comma-separated list of them to update several (from the List Connections node, or a CognigyScript value like {{context.tokenConnectionIds}})",
         params: { required: true }
       },
       ...valueFieldDescriptors,
@@ -113,11 +116,11 @@ export function makeUpdateConnectionNode(opts: {
       const onError = config.onError || "stop";
       const storeLocation = config.storeLocation || "input";
       const resultKey = config.resultKey || "connection";
-      const connectionId = (config.connectionId || "").trim();
 
       try {
-        if (!connectionId) {
-          throw new Error("Connection ID is required.");
+        const { valid, invalid } = parseConnectionIds(config.connectionId);
+        if (valid.length === 0 && invalid.length === 0) {
+          throw new Error("Connection ID is required (a single _id or a comma-separated list).");
         }
 
         const fields = pickFields(config, opts.schema.fields);
@@ -126,17 +129,31 @@ export function makeUpdateConnectionNode(opts: {
         }
 
         const client = buildApiClient(config.connection.baseUrl, config.connection.apiKey);
-        const response = await client.request({
-          method: "PATCH",
-          url: `/v2.0/connections/${encodeURIComponent(connectionId)}`,
-          data: { fields }
-        });
+        const result = await updateConnections(client, shuffle(valid), fields);
 
-        if (response.status < 200 || response.status >= 300) {
-          throw { response };
+        // Malformed ids are reported as failures alongside any API errors.
+        for (const id of invalid) {
+          result.failed.push({ id, error: "Not a valid 24-character connection _id." });
+        }
+        result.total += invalid.length;
+        result.failedCount = result.failed.length;
+
+        if (result.failedCount > 0) {
+          const summary = result.failed.map((f) => `${f.id} (${f.error})`).join("; ");
+          // @ts-ignore - log is available on the execution API
+          api.log("error", `Update Connection: ${result.failedCount} of ${result.total} failed: ${summary}`);
+          // Partial success carries on; only an all-failed run is treated as an error.
+          if (result.updatedCount === 0) {
+            const message = `All ${result.total} connection update(s) failed: ${summary}`;
+            if (onError === "stop") {
+              throw new Error(message);
+            }
+            storeResult(api, storeLocation, resultKey, { ...result, error: message });
+            return;
+          }
         }
 
-        storeResult(api, storeLocation, resultKey, response.data || { success: true });
+        storeResult(api, storeLocation, resultKey, result);
       } catch (err) {
         const message = describeError(err);
         // @ts-ignore - log is available on the execution API

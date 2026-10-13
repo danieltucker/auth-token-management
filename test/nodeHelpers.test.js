@@ -122,3 +122,111 @@ test("storeResult is a no-op when the target key is empty", () => {
   storeResult(api, "input", "", { _id: "1" });
   assert.deepEqual(api.calls, []);
 });
+
+// ---------------------------------------------------------------------------
+// parseConnectionIds
+// ---------------------------------------------------------------------------
+
+const { parseConnectionIds, updateConnections } = require("../build/lib/nodeHelpers");
+
+const ID_A = "6a886d4bd9adb69ed8d18eba";
+const ID_B = "6abe15c1eec04a04502a05b4";
+
+test("parseConnectionIds accepts a single id", () => {
+  assert.deepEqual(parseConnectionIds(ID_A), { valid: [ID_A], invalid: [] });
+});
+
+test("parseConnectionIds splits a comma-separated list and trims spaces", () => {
+  assert.deepEqual(parseConnectionIds(` ${ID_A} , ${ID_B} `), { valid: [ID_A, ID_B], invalid: [] });
+});
+
+test("parseConnectionIds tolerates a JSON-style array string", () => {
+  assert.deepEqual(parseConnectionIds(`["${ID_A}","${ID_B}"]`), { valid: [ID_A, ID_B], invalid: [] });
+});
+
+test("parseConnectionIds accepts a real array", () => {
+  assert.deepEqual(parseConnectionIds([ID_A, ID_B]), { valid: [ID_A, ID_B], invalid: [] });
+});
+
+test("parseConnectionIds de-duplicates and skips empty entries", () => {
+  assert.deepEqual(parseConnectionIds(`${ID_A},,${ID_A},`), { valid: [ID_A], invalid: [] });
+});
+
+test("parseConnectionIds separates malformed ids", () => {
+  assert.deepEqual(parseConnectionIds(`${ID_A},not-an-id`), { valid: [ID_A], invalid: ["not-an-id"] });
+});
+
+test("parseConnectionIds returns empty lists for blank/missing input", () => {
+  assert.deepEqual(parseConnectionIds("  "), { valid: [], invalid: [] });
+  assert.deepEqual(parseConnectionIds(undefined), { valid: [], invalid: [] });
+});
+
+// ---------------------------------------------------------------------------
+// updateConnections
+// ---------------------------------------------------------------------------
+
+function makeClient(statusById) {
+  const calls = [];
+  return {
+    calls,
+    request: async (config) => {
+      calls.push(config);
+      const id = config.url.split("/").pop();
+      const status = statusById[id];
+      if (status instanceof Error) {
+        throw status;
+      }
+      return { status, data: status >= 300 ? { message: "Not found" } : {} };
+    }
+  };
+}
+
+test("updateConnections PATCHes every id with the same fields", async () => {
+  const client = makeClient({ [ID_A]: 200, [ID_B]: 204 });
+  const result = await updateConnections(client, [ID_A, ID_B], { accessToken: "t" });
+  assert.deepEqual(client.calls.map((c) => [c.method, c.url, c.data]), [
+    ["PATCH", `/v2.0/connections/${ID_A}`, { fields: { accessToken: "t" } }],
+    ["PATCH", `/v2.0/connections/${ID_B}`, { fields: { accessToken: "t" } }]
+  ]);
+  assert.deepEqual(result, {
+    total: 2,
+    updatedCount: 2,
+    failedCount: 0,
+    updated: [{ id: ID_A, status: 200 }, { id: ID_B, status: 204 }],
+    failed: []
+  });
+});
+
+test("updateConnections keeps going after a failure and reports it", async () => {
+  const client = makeClient({ [ID_A]: 404, [ID_B]: 200 });
+  const result = await updateConnections(client, [ID_A, ID_B], { accessToken: "t" });
+  assert.equal(client.calls.length, 2);
+  assert.deepEqual(result.updated, [{ id: ID_B, status: 200 }]);
+  assert.deepEqual(result.failed, [{ id: ID_A, error: "HTTP 404: Not found" }]);
+});
+
+test("updateConnections records thrown network errors", async () => {
+  const client = makeClient({ [ID_A]: new Error("socket hang up") });
+  const result = await updateConnections(client, [ID_A], { accessToken: "t" });
+  assert.deepEqual(result.failed, [{ id: ID_A, error: "socket hang up" }]);
+  assert.equal(result.updatedCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// shuffle
+// ---------------------------------------------------------------------------
+
+const { shuffle } = require("../build/lib/nodeHelpers");
+
+test("shuffle returns the same items without mutating the input", () => {
+  const input = [1, 2, 3, 4, 5];
+  const result = shuffle(input);
+  assert.deepEqual(input, [1, 2, 3, 4, 5]);
+  assert.deepEqual([...result].sort(), [1, 2, 3, 4, 5]);
+});
+
+test("shuffle eventually produces a different order", () => {
+  const input = [1, 2, 3, 4, 5];
+  const orders = new Set(Array.from({ length: 50 }, () => shuffle(input).join(",")));
+  assert.ok(orders.size > 1);
+});
